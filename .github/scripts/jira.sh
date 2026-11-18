@@ -29,7 +29,7 @@ auth=(-u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' 
 comment() {
   local key="$1" text="$2"
   jq -n --arg t "$text" \
-    '{body:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:$t}]}}]}' \
+    '{body:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:$t}]}]}}' \
     | curl "${auth[@]}" -X POST --data-binary @- "$JIRA_BASE_URL/rest/api/3/issue/$key/comment" > /dev/null
   echo "Commentaire ajoute sur $key."
 }
