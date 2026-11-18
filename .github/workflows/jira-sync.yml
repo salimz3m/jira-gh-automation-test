@@ -1,0 +1,108 @@
+name: Jira status sync
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    types: [opened, closed]
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: 'Environnement déployé'
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+      jira_issue:
+        description: 'Clé du ticket Jira (ex. SCRAP-18)'
+        required: true
+        type: string
+
+jobs:
+  branch-status:
+    name: Branche poussee -> En cours
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extraire la cle Jira du nom de branche
+        id: key
+        run: |
+          KEY=$(printf '%s' "${GITHUB_REF_NAME}" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)
+          echo "Cle detectee : ${KEY:-aucune}"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+      - name: Transition En cours
+        if: steps.key.outputs.key != ''
+        env:
+          JIRA_KEY: ${{ steps.key.outputs.key }}
+        run: |
+          bash .github/scripts/jira.sh transition "$JIRA_KEY" "En cours" "Branche ${GITHUB_REF_NAME} poussee : passage automatique en En cours."
+
+  pr-comment:
+    name: PR -> commentaire
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extraire la cle Jira (titre puis branche)
+        id: key
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          KEY=$(printf '%s %s' "$PR_TITLE" "$PR_BRANCH" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)
+          echo "Cle detectee : ${KEY:-aucune}"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+      - name: PR ouverte
+        if: github.event.action == 'opened' && steps.key.outputs.key != ''
+        env:
+          JIRA_KEY: ${{ steps.key.outputs.key }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          bash .github/scripts/jira.sh comment "$JIRA_KEY" "PR #${PR_NUMBER} ouverte : ${PR_TITLE} — ${PR_URL}"
+      - name: PR fusionnee
+        if: github.event.action == 'closed' && github.event.pull_request.merged && steps.key.outputs.key != ''
+        env:
+          JIRA_KEY: ${{ steps.key.outputs.key }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          bash .github/scripts/jira.sh comment "$JIRA_KEY" "PR #${PR_NUMBER} fusionnee dans ${PR_BASE}."
+
+  deploy:
+    name: Deploiement
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploiement simule
+        run: echo "Deploiement simule sur ${{ inputs.target_environment }} (run ${{ github.run_id }})"
+      - name: Dev ou staging - commentaire
+        if: inputs.target_environment != 'prod'
+        env:
+          JIRA_KEY: ${{ inputs.jira_issue }}
+          ENV_NAME: ${{ inputs.target_environment }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          bash .github/scripts/jira.sh comment "$JIRA_KEY" "Deploiement ${ENV_NAME} reussi — ${RUN_URL}"
+      - name: Prod - Terminé + commentaire
+        if: inputs.target_environment == 'prod'
+        env:
+          JIRA_KEY: ${{ inputs.jira_issue }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          bash .github/scripts/jira.sh transition "$JIRA_KEY" "Terminé" "Deploiement production reussi : passage automatique en Terminé — ${RUN_URL}"
