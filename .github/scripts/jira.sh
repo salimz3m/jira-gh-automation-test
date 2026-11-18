@@ -24,27 +24,58 @@ if [[ -z "$CMD" || -z "$KEY" ]]; then
   exit 1
 fi
 
-auth=(-u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" -H 'Content-Type: application/json' -sS -f --max-time 30)
+# Appel API avec diagnostic complet en cas d'erreur HTTP.
+api() {
+  local method="$1" path="$2" body="${3:-}" out status
+  out=$(mktemp)
+  if [[ -n "$body" ]]; then
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" \
+      -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+      -H 'Content-Type: application/json' --max-time 30 \
+      --data-binary "$body" "$JIRA_BASE_URL$path")
+  else
+    status=$(curl -sS -o "$out" -w '%{http_code}' -X "$method" \
+      -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+      -H 'Content-Type: application/json' --max-time 30 \
+      "$JIRA_BASE_URL$path")
+  fi
+  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+    echo "ERREUR HTTP $status sur $method $path" >&2
+    echo "JIRA_BASE_URL utilise : $JIRA_BASE_URL" >&2
+    echo "--- Reponse de Jira ---" >&2
+    cat "$out" >&2
+    echo "" >&2
+    rm -f "$out"
+    exit 1
+  fi
+  cat "$out"
+  rm -f "$out"
+}
+
+adf() {
+  jq -n --arg t "$1" \
+    '{body:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:$t}]}]}}'
+}
 
 comment() {
-  local key="$1" text="$2"
-  jq -n --arg t "$text" \
-    '{body:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:$t}]}]}}' \
-    | curl "${auth[@]}" -X POST --data-binary @- "$JIRA_BASE_URL/rest/api/3/issue/$key/comment" > /dev/null
-  echo "Commentaire ajoute sur $key."
+  api POST "/rest/api/3/issue/$1/comment" "$(adf "$2")" > /dev/null
+  echo "Commentaire ajoute sur $1."
 }
 
 transition() {
   local key="$1" target="$2" text="${3:-}" tid
-  tid=$(curl "${auth[@]}" "$JIRA_BASE_URL/rest/api/3/issue/$key/transitions" \
+  tid=$(api GET "/rest/api/3/issue/$key/transitions" \
         | jq -r --arg t "$target" '.transitions[] | select(.name == $t or .to.name == $t) | .id' \
         | head -n1)
   if [[ -z "${tid// /}" ]]; then
-    echo "ERREUR : transition vers « $target » introuvable pour $key (statut actuel ou permissions)." >&2
+    echo "ERREUR : transition vers « $target » introuvable pour $key." >&2
+    echo "Transitions disponibles pour ce ticket :" >&2
+    api GET "/rest/api/3/issue/$key/transitions" \
+      | jq -r '.transitions[] | "  - \(.name) (vers \(.to.name))"' >&2
     exit 1
   fi
-  jq -n --argjson id "$tid" '{id:$id}' \
-    | curl "${auth[@]}" -X POST --data-binary @- "$JIRA_BASE_URL/rest/api/3/issue/$key/transitions" > /dev/null
+  api POST "/rest/api/3/issue/$key/transitions" \
+    "$(jq -n --argjson id "$tid" '{id:$id}')" > /dev/null
   echo "$key -> $target."
   if [[ -n "$text" ]]; then
     comment "$key" "$text"
