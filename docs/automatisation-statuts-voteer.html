@@ -191,6 +191,19 @@
     border-radius: 5px;
     padding: 2px 6px;
   }
+  pre.code {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 14px 0 20px;
+    max-width: 100%;
+    white-space: pre;
+  }
 
   /* Tuiles d'état */
   .stats {
@@ -361,6 +374,7 @@
   <nav class="toc" aria-label="Sommaire">
     <a href="#resume">Résumé</a>
     <a href="#demarche">Démarche et étapes</a>
+    <a href="#mecanisme">Le mécanisme en détail</a>
     <a href="#perimetre">Périmètre capable</a>
     <a href="#gain">Gain réel pour Voteer</a>
     <a href="#asana">Adaptation Asana</a>
@@ -376,8 +390,8 @@
 
     <div class="stats">
       <div class="stat">
-        <div class="value">6/6</div>
-        <div class="label">effets Jira vérifiés en conditions réelles sur le test</div>
+        <div class="value">5/5</div>
+        <div class="label">statuts validés de bout en bout sur le flux final</div>
       </div>
       <div class="stat">
         <div class="value">≤ 1 min</div>
@@ -394,12 +408,12 @@
       <span class="arrow">→</span>
       <span class="node hot">Workflow Actions<br><small>lit la clé du ticket</small></span>
       <span class="arrow">→</span>
-      <span class="node hot">API Jira REST<br><small>transition + commentaire</small></span>
+      <span class="node hot">API Jira REST<br><small>transition de statut</small></span>
       <span class="arrow">→</span>
       <span class="node">Ticket à jour<br><small>statut + trace horodatée</small></span>
     </div>
 
-    <p class="wide" style="color:var(--muted); font-size:14px;">Chaque action laisse une trace dans le ticket (commentaire avec lien vers le run GitHub), ce qui rend vérifiable, à tout moment, <em>ce qui a été fait, quand, et par quel pipeline</em>.</p>
+    <p class="wide" style="color:var(--muted); font-size:14px;">Chaque changement de statut est horodaté dans l'historique Jira du ticket, et le run GitHub correspondant reste consultable : on peut vérifier à tout moment <em>ce qui a bougé, quand, et par quel pipeline</em> — sans aucun commentaire ajouté par l'automatisation.</p>
   </section>
 
   <!-- ============ DÉMARCHE ============ -->
@@ -433,31 +447,29 @@
       <table>
         <thead><tr><th>Événement GitHub</th><th>Effet sur le ticket Jira</th><th>Statut du test</th></tr></thead>
         <tbody>
-          <tr><td>Push d'une branche (hors <code>main</code>) contenant la clé</td><td>Transition vers <strong>En cours</strong> + commentaire</td><td><span class="pill ok">Validé</span></td></tr>
-          <tr><td>PR ouverte</td><td>Commentaire avec le lien de la PR</td><td><span class="pill ok">Validé</span></td></tr>
-          <tr><td>PR fusionnée (squash)</td><td>Commentaire « fusionnée dans main »</td><td><span class="pill ok">Validé</span></td></tr>
-          <tr><td>Déploiement <code>dev</code></td><td>Commentaire avec le lien du run</td><td><span class="pill ok">Validé</span></td></tr>
-          <tr><td>Déploiement <code>staging</code></td><td>Commentaire avec le lien du run</td><td><span class="pill ok">Validé</span></td></tr>
-          <tr><td>Déploiement <code>prod</code></td><td>Transition vers <strong>Terminé</strong> + commentaire</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Push d'une branche de travail (hors <code>main</code>/<code>dev-dep</code>/<code>release</code>/<code>master</code>)</td><td>Transition vers <strong>EN COURS</strong></td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>PR ouverte non-draft / passée en prête / assignée</td><td>Transition vers <strong>EN PR</strong></td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Merge sur <code>dev-dep</code></td><td>Transition vers <strong>DEPLOYED ON DEV</strong></td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Merge sur <code>release</code></td><td>Transition vers <strong>DEPLOYED ON STAGING</strong></td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Merge sur <code>master</code></td><td>Transition vers <strong>TERMINÉ(E)</strong> (test : « Terminé »)</td><td><span class="pill ok">Validé</span></td></tr>
         </tbody>
       </table>
     </div>
 
     <h3>Déroulé du test — journal horodaté</h3>
-    <p>Test réalisé le 18 novembre 2026 sur un dépôt dédié et un ticket véhicule, dans un projet Jira sans enjeu. Chaque étape a été déclenchée comme elle le sera en production, puis vérifiée dans Jira.</p>
+    <p>Test réalisé le 18 novembre 2026 sur un dépôt dédié et un ticket véhicule, dans un projet Jira sans enjeu. Une première version (commentaires à chaque événement) a validé la mécanique de base ; le <strong>flux final retenu, sans commentaires et à cinq statuts</strong>, a ensuite été revalidé intégralement de la branche jusqu'à la production.</p>
     <ol class="timeline">
-      <li><time>11:43</time><span class="what"><strong>Push de la branche</strong> <code>feature/SCRAP-18-…</code> → ticket passé <strong>En cours</strong>, commentaire avec le nom de la branche.</span></li>
-      <li><time>11:43</time><span class="what"><strong>PR #1 ouverte</strong> → commentaire « PR ouverte » avec son lien.</span></li>
-      <li><time>11:44</time><span class="what"><strong>PR fusionnée</strong> en squash, branche supprimée → commentaire « fusionnée dans main ».</span></li>
-      <li><time>11:45</time><span class="what"><strong>Déploiement dev</strong> → commentaire avec le lien du run Actions.</span></li>
-      <li><time>11:45</time><span class="what"><strong>Déploiement staging</strong> → commentaire avec le lien du run Actions.</span></li>
-      <li><time>11:46</time><span class="what"><strong>Déploiement prod</strong> → ticket passé <strong>Terminé</strong>, commentaire avec le lien du run.</span></li>
+      <li><time>15:10</time><span class="what"><strong>Push</strong> de <code>feature/SCRAP-18-flux-v2</code> → ticket passé <strong>En cours</strong>.</span></li>
+      <li><time>15:11</time><span class="what"><strong>PR #2 ouverte</strong> vers <code>dev-dep</code> → <strong>EN PR</strong>.</span></li>
+      <li><time>15:11</time><span class="what"><strong>PR #2 fusionnée</strong> sur <code>dev-dep</code> → <strong>DEPLOYED ON DEV</strong>.</span></li>
+      <li><time>15:13</time><span class="what"><strong>Promotion #3</strong> <code>dev-dep</code> → <code>release</code>, <em>sans clé dans le titre</em> → <strong>DEPLOYED ON STAGING</strong>, détecté via les commits du lot.</span></li>
+      <li><time>15:13</time><span class="what"><strong>Promotion #4</strong> <code>release</code> → <code>master</code>, <em>sans clé dans le titre</em> → <strong>Terminé</strong>.</span></li>
     </ol>
 
     <h3>Ce que contient le dépôt</h3>
     <ul>
-      <li><code>.github/workflows/jira-sync.yml</code> — le workflow unique : trois déclencheurs (push, pull request, lancement manuel), trois jobs courts, aucune dépendance externe.</li>
-      <li><code>.github/scripts/jira.sh</code> — le script d'appel : transition <em>par nom de statut</em> (aucun identifiant fragile codé en dur), commentaire au format natif Jira, diagnostic HTTP complet en cas d'échec.</li>
+      <li><code>.github/workflows/jira-sync.yml</code> — la recette : déclencheurs push et pull_request, trois jobs courts, les noms de statuts Jira regroupés dans le bloc <code>env:</code> en tête de fichier.</li>
+      <li><code>.github/scripts/jira.sh</code> — l'exécutant : transition <em>par nom de statut</em> (aucun identifiant fragile codé en dur), idempotence, diagnostic HTTP complet en cas d'échec. La fonction commentaire existe encore mais n'est plus appelée dans le flux retenu.</li>
       <li>Trois secrets de dépôt : <code>JIRA_BASE_URL</code>, <code>JIRA_USER_EMAIL</code>, <code>JIRA_API_TOKEN</code>. Le token reste dans GitHub et n'est jamais exposé dans le code.</li>
     </ul>
 
@@ -472,9 +484,103 @@
     </div>
   </section>
 
+  <!-- ============ MÉCANISME EN DÉTAIL ============ -->
+  <section id="mecanisme" aria-labelledby="mecanisme-h">
+    <p class="kicker">03 · Le mécanisme en détail</p>
+    <h2 id="mecanisme-h">Deux fichiers, cinq étapes : ce qui se passe vraiment</h2>
+
+    <p>Rien ne tourne en permanence, aucun serveur n'écoute. <strong>GitHub est le déclencheur</strong> : à chaque événement du dépôt, il lit les fichiers de workflow, allume une machine virtuelle jetable qui exécute les étapes en une quinzaine de secondes, puis l'éteint. Tout le « cerveau » tient dans deux fichiers versionnés.</p>
+
+    <h3>Les deux fichiers</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Fichier</th><th>Rôle</th><th>Emplacement dans le dépôt</th></tr></thead>
+        <tbody>
+          <tr><td><code>jira-sync.yml</code></td><td><strong>La recette.</strong> Quels événements déclenchent quel job, et les noms exacts des statuts Jira regroupés dans le bloc <code>env:</code> en tête de fichier. C'est le seul fichier à retoucher pour changer de projet.</td><td><code>.github/workflows/jira-sync.yml</code></td></tr>
+          <tr><td><code>jira.sh</code></td><td><strong>L'exécutant.</strong> Extrait la clé du ticket, interroge l'API Jira, applique la transition par nom de statut. Idempotent (déjà dans le statut = succès silencieux) et bavard en cas d'échec (code HTTP et réponse Jira affichés dans le log).</td><td><code>.github/scripts/jira.sh</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Le dossier <code>workflows/</code> est imposé par GitHub : un YAML placé ailleurs n'est jamais exécuté. Les trois secrets (<code>JIRA_BASE_URL</code>, <code>JIRA_USER_EMAIL</code>, <code>JIRA_API_TOKEN</code>) vivent hors du dépôt, chiffrés dans <em>Settings → Secrets and variables → Actions</em>.</p>
+
+    <div class="callout">
+      <p class="title">La ligne qui fait tout le lien : l'extraction de la clé</p>
+      <p>Le ticket est identifié par une seule commande de filtrage :</p>
+      <pre class="code">KEY=$(printf '%s' "${GITHUB_REF_NAME}" \
+  | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)</pre>
+      <p>Le nom de branche <code>feature/VOTEER-12-login</code> donne la clé <code>VOTEER-12</code>. Aucune base de données, aucun scan de Jira, aucun « script de nettoyage » : si aucune clé n'est trouvée, le script ne fait rien. <strong>La clé dans la branche est le lien.</strong></p>
+    </div>
+
+    <h3>Étape 1 — Push d'une branche de travail → EN COURS</h3>
+    <ul>
+      <li><strong>Déclencheur</strong> : push sur toute branche, sauf <code>main</code>, <code>dev-dep</code>, <code>release</code> et <code>master</code> (ces trois dernières ont leur propre job de merge).</li>
+      <li><strong>Clé</strong> : extraite du nom de la branche.</li>
+      <li><strong>Appel</strong> : <code>bash .github/scripts/jira.sh transition "$KEY" "$STATUS_IN_PROGRESS"</code>.</li>
+      <li><strong>Côté API Jira</strong> : <code>GET /transitions</code> pour trouver la transition nommée « EN COURS », puis <code>POST /transitions</code>. Si le ticket est déjà dans ce statut, rien ne se passe et le run reste vert.</li>
+    </ul>
+
+    <h3>Étape 2 — PR ouverte, prête ou assignée → EN PR</h3>
+    <ul>
+      <li><strong>Déclencheur</strong> : événement <code>pull_request</code>, actions <code>opened</code> (uniquement si la PR n'est pas en draft), <code>ready_for_review</code> ou <code>assigned</code>.</li>
+      <li><strong>Nuance draft</strong> : une PR créée en brouillon ne bouge rien ; le ticket reste EN COURS tant que la PR n'est pas prête ou assignée. C'est l'interprétation du principe « branche en draft → EN COURS ».</li>
+      <li><strong>Clé</strong> : cherchée d'abord dans le <em>titre</em> de la PR, puis dans la <em>branche source</em>.</li>
+    </ul>
+
+    <h3>Étape 3 — Merge sur dev-dep → DEPLOYED ON DEV</h3>
+    <ul>
+      <li><strong>Déclencheurs</strong> : PR fusionnée dont la branche de base est <code>dev-dep</code>, <em>ou</em> push direct sur <code>dev-dep</code> (couvre les merges sans PR).</li>
+      <li><strong>Clé(s)</strong> : titre et branche de la PR, <em>plus tous les commits de la PR</em> lus via l'API GitHub ; pour un push direct, le message du commit de merge et les commits poussés.</li>
+      <li><strong>Conséquence</strong> : si plusieurs tickets se trouvent dans le lot, chacun reçoit sa transition ; un échec sur l'un n'interrompt pas les autres (avertissement dans le log, on continue).</li>
+    </ul>
+
+    <h3>Étape 4 — Merge sur release → DEPLOYED ON STAGING</h3>
+    <ul>
+      <li>Même mécanique, avec <code>release</code> comme branche de base.</li>
+      <li><strong>Le cas qui compte</strong> : la promotion <code>dev-dep</code> → <code>release</code> est typiquement une PR en lot dont le titre ne cite aucun ticket. Le workflow scanne alors <em>tous les commits de la PR</em> et fait transitionner chaque clé trouvée. Validé en test : PR sans clé dans le titre, ticket correctement passé en DEPLOYED ON STAGING.</li>
+    </ul>
+
+    <h3>Étape 5 — Merge sur master → TERMINÉ(E)</h3>
+    <ul>
+      <li>Même mécanique, avec <code>master</code> comme branche de base (nom du statut voteer : « TERMINÉ(E) »).</li>
+      <li>Fin du cycle : le ticket a suivi automatiquement tout son parcours, du premier push à la mise en production, sans aucune intervention humaine.</li>
+    </ul>
+
+    <h3>Le chronomètre d'un événement (≈ 15 secondes)</h3>
+    <ol>
+      <li><strong>T+0 s</strong> — un développeur pousse sa branche ; GitHub reçoit l'événement.</li>
+      <li><strong>T+5 s</strong> — un runner jetable démarre et clone le dépôt (en lecture seule).</li>
+      <li><strong>T+9 s</strong> — le filtre extrait la clé du nom de branche.</li>
+      <li><strong>T+10 s</strong> — deux ou trois appels HTTPS vers Jira : transitions possibles, statut actuel, transition.</li>
+      <li><strong>T+15 s</strong> — le runner s'éteint ; le ticket est à jour. Aucun serveur à maintenir.</li>
+    </ol>
+
+    <h3>Ce que l'automatisation a le droit de faire — et rien de plus</h3>
+    <p>Le workflow déclare explicitement ses permissions en tête de fichier :</p>
+    <pre class="code">permissions:
+  contents: read
+  pull-requests: read</pre>
+    <ul>
+      <li><strong>GitHub : lecture seule.</strong> Aucun droit de pousser, merger, modifier une PR, une branche ou un paramètre du dépôt — même si le script contenait un bug.</li>
+      <li><strong>Jira : un seul écrit</strong> — le changement de statut du ticket via l'API de transitions. La fonction commentaire existe encore dans le script mais n'est plus appelée dans le flux retenu.</li>
+      <li><strong>Aucune autonomie</strong> : pas de tâche planifiée, pas de cron ; uniquement des réactions à des événements.</li>
+      <li><strong>Recommandation</strong> : faire porter le token par un compte de service dédié, avec des droits limités aux projets concernés.</li>
+    </ul>
+
+    <div class="callout">
+      <p class="title">Les noms de statuts se règlent en un seul endroit</p>
+      <pre class="code">env:
+  STATUS_IN_PROGRESS: 'EN COURS'
+  STATUS_IN_PR: 'EN PR'
+  STATUS_DEV: 'DEPLOYED ON DEV'
+  STATUS_STAGING: 'DEPLOYED ON STAGING'
+  STATUS_DONE: 'TERMINÉ(E)'</pre>
+      <p>Changer de projet revient à changer ces cinq lignes. Ni le reste du workflow ni le script ne bougent.</p>
+    </div>
+  </section>
+
   <!-- ============ PÉRIMÈTRE ============ -->
   <section id="perimetre" aria-labelledby="perimetre-h">
-    <p class="kicker">03 · Périmètre capable</p>
+    <p class="kicker">04 · Périmètre capable</p>
     <h2 id="perimetre-h">Ce que l'automatisation sait faire — et ce qu'elle ne fait pas</h2>
 
     <h3>Ce qu'elle couvre</h3>
@@ -515,7 +621,7 @@
 
   <!-- ============ GAIN ============ -->
   <section id="gain" aria-labelledby="gain-h">
-    <p class="kicker">04 · Gain réel</p>
+    <p class="kicker">05 · Gain réel</p>
     <h2 id="gain-h">Ce que ça change à l'échelle de centaines de tickets</h2>
 
     <p>Sur un projet de quelques tickets, la saisie manuelle des statuts tient encore. Sur des centaines de tickets, le suivi décroche : les tableaux de bord affichent un état vieux de plusieurs jours, et le temps du chef de projet part en relances de mise à jour au lieu d'analyse.</p>
@@ -563,7 +669,7 @@
 
   <!-- ============ ASANA ============ -->
   <section id="asana" aria-labelledby="asana-h">
-    <p class="kicker">05 · Adaptation Asana</p>
+    <p class="kicker">06 · Adaptation Asana</p>
     <h2 id="asana-h">Et si Voteer passait (aussi) par Asana</h2>
 
     <p>Le mécanisme ne dépend pas de Jira : c'est un workflow GitHub qui parle à une API. Asana expose lui aussi une API REST complète. La transposition demande de réécrire le script d'appel, pas l'architecture. Le côté GitHub — branches, PR, déploiements, secrets — reste strictement identique.</p>
@@ -607,17 +713,17 @@
 
   <!-- ============ MISE EN ŒUVRE ============ -->
   <section id="mise-en-oeuvre" aria-labelledby="moe-h">
-    <p class="kicker">06 · Mise en œuvre</p>
+    <p class="kicker">07 · Mise en œuvre</p>
     <h2 id="moe-h">Passer du test à voteer</h2>
 
     <p>Le test a déjà répondu aux questions d'architecture. Il reste à transposer — et à décider de ce qui convient à voteer.</p>
 
     <ol class="check">
       <li><span class="box" aria-hidden="true"></span><span><strong>Obtenir l'accès à l'organisation</strong> — un propriétaire de <code>@voteer</code> approuve GitHub CLI, ou un token à portée limitée est créé pour les opérations d'installation.</span></li>
-      <li><span class="box" aria-hidden="true"></span><span><strong>Identifier le projet Jira de voteer</strong> et lister ses statuts réels. Si les états « dev / staging / prod » n'existent pas, choisir entre les ajouter au workflow ou se limiter aux commentaires pour ces environnements.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Identifier le projet Jira de voteer</strong> et vérifier les noms exacts des cinq statuts cibles : <code>EN COURS</code>, <code>EN PR</code>, <code>DEPLOYED ON DEV</code>, <code>DEPLOYED ON STAGING</code>, <code>TERMINÉ(E)</code>. Ajuster si besoin le bloc <code>env:</code> en tête de <code>jira-sync.yml</code> — c'est le seul fichier à modifier.</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Créer un compte de service</strong> (ou réutiliser le compte choisi) et générer son token API ; le conserver dans les secrets du dépôt voteer, jamais dans le code.</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Installer les deux fichiers</strong> dans le dépôt voteer et brancher les étapes Jira dans les vrais jobs de déploiement, après les étapes de mise en production.</span></li>
-      <li><span class="box" aria-hidden="true"></span><span><strong>Durcir le script avant généralisation</strong> — tolérer proprement le cas « ticket déjà dans le statut visé », pour qu'une re-poussée ne produise jamais un run rouge inutile.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Vérifier le durcissement — déjà en place</strong> dans la version testée : idempotence (ticket déjà dans le statut visé = succès silencieux), diagnostic HTTP complet, extraction par commits pour les promotions en lot.</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Piloter sur 3 à 5 tickets réels</strong>, vérifier chaque effet, puis élargir. Décider à ce moment-là si dev et staging commentent aussi, ou si la prod suffit.</span></li>
     </ol>
 
@@ -628,7 +734,7 @@
   </section>
 
   <footer>
-    <p>Document établi le 18 novembre 2026 à partir du test réel sur le dépôt <code>salimz3m/jira-gh-automation-test</code> et du ticket véhicule SCRAP-18. Environnement de test : site Atlassian <code>ourabahsalim.atlassian.net</code>, projet ScrapperTeam. Les hypothèses de volume de la section « Gain réel » sont à ajuster aux chiffres réels de voteer.</p>
+    <p>Document établi le 18 novembre 2026 à partir des tests réels sur le dépôt <code>salimz3m/jira-gh-automation-test</code> et du ticket véhicule SCRAP-18. Deux flux validés le même jour : une première version avec commentaires, puis le flux final à cinq statuts sans commentaire (PR #2, #3 et #4 : ouverture, promotion release sans clé dans le titre, promotion master). Environnement de test : site Atlassian <code>ourabahsalim.atlassian.net</code>, projet ScrapperTeam. Les hypothèses de volume de la section « Gain réel » sont à ajuster aux chiffres réels de voteer.</p>
   </footer>
 
 </div>
