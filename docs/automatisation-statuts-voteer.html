@@ -1,0 +1,634 @@
+<title>Automatisation Statuts Voteer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Plan : documentation d'ingénierie — palette ardoise bleutée + accent indigo profond,
+     Space Grotesk / Inter / JetBrains Mono, une colonne, tables larges défilantes. */
+  :root {
+    --bg: #f6f7fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f6;
+    --fg: #1b2233;
+    --muted: #5a6478;
+    --line: #dfe4ec;
+    --accent: #2f56c9;
+    --accent-fg: #ffffff;
+    --accent-soft: #e7ecfa;
+    --ok: #187a49;
+    --ok-soft: #e2f4ea;
+    --warn: #8a6100;
+    --warn-soft: #fbf1d0;
+    --danger: #b02a1e;
+    --danger-soft: #fbe7e4;
+    --code-bg: #eceff5;
+    --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f131c;
+      --surface: #161c29;
+      --surface-2: #1b2333;
+      --fg: #e5e9f2;
+      --muted: #98a2b6;
+      --line: #263042;
+      --accent: #7f9cf2;
+      --accent-fg: #0f131c;
+      --accent-soft: #1d2740;
+      --ok: #5fca92;
+      --ok-soft: #12291d;
+      --warn: #dfb549;
+      --warn-soft: #2a2410;
+      --danger: #f08c82;
+      --danger-soft: #2c1714;
+      --code-bg: #1b2231;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f131c;
+    --surface: #161c29;
+    --surface-2: #1b2333;
+    --fg: #e5e9f2;
+    --muted: #98a2b6;
+    --line: #263042;
+    --accent: #7f9cf2;
+    --accent-fg: #0f131c;
+    --accent-soft: #1d2740;
+    --ok: #5fca92;
+    --ok-soft: #12291d;
+    --warn: #dfb549;
+    --warn-soft: #2a2410;
+    --danger: #f08c82;
+    --danger-soft: #2c1714;
+    --code-bg: #1b2231;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.65;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 64px;
+  }
+
+  .wrap { max-width: 1060px; margin: 0 auto; }
+
+  /* En-tête */
+  .hero {
+    display: grid;
+    gap: 14px;
+    padding-block: 48px 28px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(30px, 4.6vw, 46px);
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+    max-width: 66ch;
+    margin: 0;
+  }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .badge.done { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .badge.next { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .badge.next .dot { background: var(--warn); }
+
+  /* Sommaire */
+  nav.toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-block: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  nav.toc a {
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); color: var(--accent); }
+  nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  section { padding-block: 44px 8px; }
+  section + section { border-top: 1px solid var(--line); }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: clamp(23px, 3vw, 30px);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  h3 {
+    font-family: var(--font-display);
+    font-size: 19px;
+    margin: 30px 0 8px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 14px; max-width: 72ch; }
+  p.wide { max-width: none; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; max-width: 72ch; }
+  li { margin-bottom: 7px; }
+  strong { font-weight: 650; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    border-radius: 5px;
+    padding: 2px 6px;
+  }
+
+  /* Tuiles d'état */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+    margin: 22px 0 8px;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+    min-width: 0;
+  }
+  .stat .value {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .label { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+
+  /* Tables */
+  .tablebox {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    margin: 18px 0 22px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.5; }
+  th, td { text-align: left; padding: 11px 16px; vertical-align: top; border-top: 1px solid var(--line); min-width: 0; }
+  thead th {
+    border-top: none;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 600;
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td code { white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-size: 12.5px;
+    font-weight: 650;
+    border-radius: 999px;
+    padding: 2px 10px;
+    white-space: nowrap;
+  }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.bad { background: var(--danger-soft); color: var(--danger); }
+  .pill.info { background: var(--accent-soft); color: var(--accent); }
+
+  /* Ligne du temps */
+  .timeline { list-style: none; padding: 0; margin: 20px 0; display: grid; gap: 0; max-width: 78ch; }
+  .timeline li {
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    gap: 16px;
+    padding: 10px 0;
+    border-left: 2px solid var(--line);
+    margin: 0;
+    padding-left: 18px;
+    position: relative;
+  }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 18px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 0 3px var(--bg);
+  }
+  .timeline time { font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .timeline .what { font-size: 14.5px; }
+
+  /* Encadrés */
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    max-width: 78ch;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+  .callout .title { font-weight: 650; margin: 0 0 6px; font-size: 15px; }
+
+  /* Checklist */
+  .check { list-style: none; padding: 0; margin: 18px 0; display: grid; gap: 10px; max-width: 78ch; }
+  .check li {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 12px;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin: 0;
+    font-size: 14.5px;
+  }
+  .check .box {
+    width: 18px; height: 18px;
+    border: 2px solid var(--muted);
+    border-radius: 5px;
+    margin-top: 2px;
+  }
+
+  /* Architecture mini-schéma */
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0 6px;
+    font-size: 14px;
+  }
+  .flow .node {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 8px 14px;
+    font-weight: 600;
+  }
+  .flow .node.hot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .flow .arrow { color: var(--muted); font-family: var(--font-mono); }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13.5px;
+  }
+
+  @media (max-width: 560px) {
+    .timeline li { grid-template-columns: 1fr; gap: 2px; }
+    section { padding-block: 34px 6px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Documentation · Voteer · 18 novembre 2026</p>
+    <h1>Automatisation des statuts Jira pilotée par GitHub</h1>
+    <p class="lede">Un ticket saisi dans une branche, une PR ouverte ou un déploiement : le statut Jira se met à jour tout seul, avec une trace horodatée à chaque étape. Mécanisme validé de bout en bout sur un environnement de test, prêt à être transposé sur l'organisation Voteer.</p>
+    <div class="badges">
+      <span class="badge done"><span class="dot"></span>Validé sur environnement de test</span>
+      <span class="badge next"><span class="dot"></span>Transposition voteer à planifier</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Sommaire">
+    <a href="#resume">Résumé</a>
+    <a href="#demarche">Démarche et étapes</a>
+    <a href="#perimetre">Périmètre capable</a>
+    <a href="#gain">Gain réel pour Voteer</a>
+    <a href="#asana">Adaptation Asana</a>
+    <a href="#mise-en-oeuvre">Mise en œuvre</a>
+  </nav>
+
+  <!-- ============ RÉSUMÉ ============ -->
+  <section id="resume" aria-labelledby="resume-h">
+    <p class="kicker">01 · Résumé</p>
+    <h2 id="resume-h">L'essentiel en une page</h2>
+
+    <p>Les statuts des tickets Jira suivent aujourd'hui le rythme des mises à jour manuelles : ils arrivent souvent en retard, ou pas du tout. L'automatisation présentée ici relie directement le travail réel — branches, pull requests, déploiements — au cycle de vie du ticket.</p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="value">6/6</div>
+        <div class="label">effets Jira vérifiés en conditions réelles sur le test</div>
+      </div>
+      <div class="stat">
+        <div class="value">≤ 1 min</div>
+        <div class="label">délai entre l'action GitHub et la mise à jour Jira</div>
+      </div>
+      <div class="stat">
+        <div class="value">2</div>
+        <div class="label">fichiers à installer dans le dépôt, aucun script de CI existant à modifier</div>
+      </div>
+    </div>
+
+    <div class="flow" aria-label="Principe en quatre temps">
+      <span class="node">Événement GitHub<br><small>branche · PR · déploiement</small></span>
+      <span class="arrow">→</span>
+      <span class="node hot">Workflow Actions<br><small>lit la clé du ticket</small></span>
+      <span class="arrow">→</span>
+      <span class="node hot">API Jira REST<br><small>transition + commentaire</small></span>
+      <span class="arrow">→</span>
+      <span class="node">Ticket à jour<br><small>statut + trace horodatée</small></span>
+    </div>
+
+    <p class="wide" style="color:var(--muted); font-size:14px;">Chaque action laisse une trace dans le ticket (commentaire avec lien vers le run GitHub), ce qui rend vérifiable, à tout moment, <em>ce qui a été fait, quand, et par quel pipeline</em>.</p>
+  </section>
+
+  <!-- ============ DÉMARCHE ============ -->
+  <section id="demarche" aria-labelledby="demarche-h">
+    <p class="kicker">02 · Démarche et suivi</p>
+    <h2 id="demarche-h">Les étapes choisies, et le déroulé du test</h2>
+
+    <h3>Choix d'architecture : appels directs à l'API Jira</h3>
+    <p>Deux approches étaient possibles :</p>
+    <ul>
+      <li><strong>Approche « native »</strong> — application <em>GitHub for Jira</em> + règles <em>Jira Automation</em>. Puissante, mais les règles se créent uniquement à la main dans l'interface Jira : rien n'est versionné, rien n'est reproductible, et chaque projet doit être reconfiguré manuellement.</li>
+      <li><strong>Approche retenue « API REST »</strong> — le workflow GitHub Actions appelle directement l'API Jira (transition de statut et commentaire) avec un token stocké dans les secrets du dépôt. Tout vit dans le dépôt : versionné, relu comme du code, dupliqué en quelques minutes d'un projet à l'autre.</li>
+    </ul>
+    <p>L'approche retenue a été testée de bout en bout. Elle n'exclut pas l'approche native : les jobs de déploiement utilisent des <em>environnements</em> GitHub, ce qui les rend compatibles avec un branchement ultérieur sur GitHub for Jira.</p>
+
+    <h3>Convention de branches</h3>
+    <p>La clé Jira complète doit figurer dans le nom de branche et dans le titre de la PR :</p>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Format</th><th>Exemple</th></tr></thead>
+        <tbody>
+          <tr><td><code>Sprint/Fix/&lt;clé&gt;-&lt;nom&gt;</code></td><td><code>Sprint/Fix/VOTEER-12-correction-login</code></td></tr>
+          <tr><td><code>feature/&lt;clé&gt;-&lt;nom&gt;</code></td><td><code>feature/VOTEER-12-correction-login</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Le workflow extrait la clé automatiquement (motif <code>[A-Z]+-[0-9]+</code>) du nom de branche, puis du titre de la PR. Aucun autre outil n'est nécessaire pour que le lien se fasse.</p>
+
+    <h3>Mapping événement GitHub → effet Jira</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Événement GitHub</th><th>Effet sur le ticket Jira</th><th>Statut du test</th></tr></thead>
+        <tbody>
+          <tr><td>Push d'une branche (hors <code>main</code>) contenant la clé</td><td>Transition vers <strong>En cours</strong> + commentaire</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>PR ouverte</td><td>Commentaire avec le lien de la PR</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>PR fusionnée (squash)</td><td>Commentaire « fusionnée dans main »</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Déploiement <code>dev</code></td><td>Commentaire avec le lien du run</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Déploiement <code>staging</code></td><td>Commentaire avec le lien du run</td><td><span class="pill ok">Validé</span></td></tr>
+          <tr><td>Déploiement <code>prod</code></td><td>Transition vers <strong>Terminé</strong> + commentaire</td><td><span class="pill ok">Validé</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Déroulé du test — journal horodaté</h3>
+    <p>Test réalisé le 18 novembre 2026 sur un dépôt dédié et un ticket véhicule, dans un projet Jira sans enjeu. Chaque étape a été déclenchée comme elle le sera en production, puis vérifiée dans Jira.</p>
+    <ol class="timeline">
+      <li><time>11:43</time><span class="what"><strong>Push de la branche</strong> <code>feature/SCRAP-18-…</code> → ticket passé <strong>En cours</strong>, commentaire avec le nom de la branche.</span></li>
+      <li><time>11:43</time><span class="what"><strong>PR #1 ouverte</strong> → commentaire « PR ouverte » avec son lien.</span></li>
+      <li><time>11:44</time><span class="what"><strong>PR fusionnée</strong> en squash, branche supprimée → commentaire « fusionnée dans main ».</span></li>
+      <li><time>11:45</time><span class="what"><strong>Déploiement dev</strong> → commentaire avec le lien du run Actions.</span></li>
+      <li><time>11:45</time><span class="what"><strong>Déploiement staging</strong> → commentaire avec le lien du run Actions.</span></li>
+      <li><time>11:46</time><span class="what"><strong>Déploiement prod</strong> → ticket passé <strong>Terminé</strong>, commentaire avec le lien du run.</span></li>
+    </ol>
+
+    <h3>Ce que contient le dépôt</h3>
+    <ul>
+      <li><code>.github/workflows/jira-sync.yml</code> — le workflow unique : trois déclencheurs (push, pull request, lancement manuel), trois jobs courts, aucune dépendance externe.</li>
+      <li><code>.github/scripts/jira.sh</code> — le script d'appel : transition <em>par nom de statut</em> (aucun identifiant fragile codé en dur), commentaire au format natif Jira, diagnostic HTTP complet en cas d'échec.</li>
+      <li>Trois secrets de dépôt : <code>JIRA_BASE_URL</code>, <code>JIRA_USER_EMAIL</code>, <code>JIRA_API_TOKEN</code>. Le token reste dans GitHub et n'est jamais exposé dans le code.</li>
+    </ul>
+
+    <div class="callout">
+      <p class="title">Le test a aussi servi à corriger trois défauts réels avant mise en production</p>
+      <ul>
+        <li>Format du corps de requête pour les transitions Jira (structure <code>transition.id</code> attendue par l'API).</li>
+        <li>Format du commentaire (Jira exige un corps structuré ADF, pas du texte brut).</li>
+        <li>Diagnostic : les erreurs HTTP de Jira sont désormais affichées en clair dans le log du run, au lieu d'un échec muet.</li>
+      </ul>
+      <p>C'est précisément l'intérêt d'un environnement de test : ces trois points auraient coûté une demi-journée de tâtonnement sur le dépôt réel.</p>
+    </div>
+  </section>
+
+  <!-- ============ PÉRIMÈTRE ============ -->
+  <section id="perimetre" aria-labelledby="perimetre-h">
+    <p class="kicker">03 · Périmètre capable</p>
+    <h2 id="perimetre-h">Ce que l'automatisation sait faire — et ce qu'elle ne fait pas</h2>
+
+    <h3>Ce qu'elle couvre</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Capacité</th><th>Détail</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Transitions de statut</strong></td><td>Par nom de statut cible — résiste aux changements d'identifiants et fonctionne sur tout workflow Jira, y compris les statuts personnalisés (ex. « Deployed on Dev »).</td></tr>
+          <tr><td><strong>Commentaires</strong></td><td>Texte horodaté avec liens cliquables vers la PR et le run GitHub. Base de l'audit et des notes de version.</td></tr>
+          <tr><td><strong>Événements GitHub</strong></td><td>Tout événement Actions : push, PR, déploiement, release, tag, échec de build, lancement manuel.</td></tr>
+          <tr><td><strong>Multiprojet</strong></td><td>Un même dépôt peut piloter plusieurs projets Jira (le script lit la clé dans la branche, le projet en découle).</td></tr>
+          <tr><td><strong>Extensible</strong></td><td>L'API Jira permet aussi d'assigner, d'étiqueter, de renseigner des champs personnalisés, de lier des tickets ou de gérer des versions. Ces briques s'ajoutent au même script si le besoin apparaît.</td></tr>
+          <tr><td><strong>Transposable</strong></td><td>Installation identique sur n'importe quel dépôt GitHub : copier deux fichiers, ajouter trois secrets.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Ce qu'elle ne fait pas (limites assumées)</h3>
+    <ul>
+      <li><strong>Elle ne remplace pas la discipline de branche.</strong> Sans clé Jira dans le nom de branche ou le titre de PR, aucun lien n'est établi. C'est le principal point de vigilance à l'adoption.</li>
+      <li><strong>Le token a un propriétaire.</strong> Le token API appartient à un compte Atlassian ; si ce compte disparaît, l'automatisation s'arrête. Recommandation : créer un compte de service dédié et en faire le propriétaire du token.</li>
+      <li><strong>Les statuts doivent exister dans le projet.</strong> Si un projet voteer n'a pas de statuts « dev / staging / prod », il faut soit les ajouter au workflow (2 minutes), soit se limiter aux commentaires pour ces environnements.</li>
+      <li><strong>Les droits suivent le compte.</strong> Le porteur du token doit avoir le droit de transitionner sur les projets concernés.</li>
+      <li><strong>Idempotence à parfaire.</strong> Re-pousser sur une branche déjà « En cours » produit aujourd'hui un run en échec (sans effet sur Jira, mais bruyant). Correction déjà identifiée : traiter « transition indisponible » comme un succès quand le ticket est déjà dans l'état visé.</li>
+      <li><strong>Bruit possible.</strong> Multiplier les événements multiplie les commentaires. Recommandation de démarrage : branche, PR fusionnée, prod — puis ajouter dev/staging si l'équipe les trouve utiles.</li>
+      <li><strong>Coût d'exécution</strong> : chaque événement consomme ~10 à 20 secondes de runner GitHub Actions — négligeable à l'échelle d'une organisation.</li>
+    </ul>
+
+    <div class="callout warn">
+      <p class="title">Prérequis techniques pour voteer</p>
+      <ul>
+        <li>Les trois secrets du dépôt (URL Jira, email, token API).</li>
+        <li>L'approbation de GitHub CLI par un propriétaire de l'organisation — ou un token à portée limitée — pour les opérations d'installation.</li>
+        <li>Le nom des statuts réels du projet Jira voteer, pour caler le mapping.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ GAIN ============ -->
+  <section id="gain" aria-labelledby="gain-h">
+    <p class="kicker">04 · Gain réel</p>
+    <h2 id="gain-h">Ce que ça change à l'échelle de centaines de tickets</h2>
+
+    <p>Sur un projet de quelques tickets, la saisie manuelle des statuts tient encore. Sur des centaines de tickets, le suivi décroche : les tableaux de bord affichent un état vieux de plusieurs jours, et le temps du chef de projet part en relances de mise à jour au lieu d'analyse.</p>
+
+    <h3>Hypothèse de calcul (à ajuster aux volumes réels)</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Hypothèse</th><th>Valeur retenue</th></tr></thead>
+        <tbody>
+          <tr><td>Tickets actifs sur le projet</td><td class="num">≈ 300</td></tr>
+          <tr><td>PR / branches actives par semaine</td><td class="num">≈ 40</td></tr>
+          <tr><td>Temps d'une mise à jour manuelle de statut (navigation, clic, vérification)</td><td class="num">≈ 1,5 min</td></tr>
+          <tr><td>Décalage moyen actuel entre réalité et statut affiché</td><td class="num">1 à 3 jours</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Avant / après</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Dimension</th><th>Avant (manuel)</th><th>Après (automatisé)</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Fraîcheur du statut</strong></td><td>Décalage de 1 à 3 jours, ou jamais mis à jour</td><td><span class="pill ok">≤ 1 min</span> après chaque événement</td></tr>
+          <tr><td><strong>Temps administratif</strong></td><td>≈ 1 h / semaine / projet en relances et saisies</td><td>0</td></tr>
+          <tr><td><strong>Fiabilité du reporting</strong></td><td>Tableaux de bord approximatifs, cycle time faux</td><td>Cycle time, lead time et vélocité calculés sur des données exactes</td></tr>
+          <tr><td><strong>Traçabilité des livraisons</strong></td><td>Reconstituée à la main, par mémoire ou par git log</td><td>Chaque ticket porte le lien de son run de déploiement</td></tr>
+          <tr><td><strong>Adoption du processus</strong></td><td>Une procédure à connaître et à respecter</td><td>La branche fait la procédure : rien à apprendre de plus</td></tr>
+          <tr><td><strong>Passage à l'échelle</strong></td><td>Coût linéaire avec le nombre de tickets</td><td>Coût constant, identique à 30 ou à 3 000 tickets</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Les trois gains qui comptent vraiment</h3>
+    <ol>
+      <li><strong>Le tableau de bord dit la vérité.</strong> Quand les statuts suivent les vrais événements, un filtre JQL devient une source de décision : savoir quels tickets attendent une validation produit, lesquels sont déployés mais pas encore terminés, lesquels traînent depuis trois sprints.</li>
+      <li><strong>« Qu'est-ce qui est parti en prod cette semaine ? » devient une requête.</strong> Chaque ticket terminé contient le lien du déploiement qui l'a livré — la réponse existe, horodatée, sans réunion ni fouille dans les logs.</li>
+      <li><strong>Le temps libéré est le temps du chef de projet</strong>, pas celui de l'équipe de dev. Les relances de statut, les tableaux à corriger avant la réunion, les allers-retours « tu peux bouger le ticket ? » disparaissent.</li>
+    </ol>
+
+    <div class="callout">
+      <p class="title">Message honnête sur le gain</p>
+      <p>Le gain dépend d'une seule habitude : mettre la clé du ticket dans les branches. C'est une contrainte légère, et c'est la plus faible qu'on puisse demander à un développeur pour obtenir un suivi fiable. Le reste — relances, saisies, corrections — disparaît sans effort supplémentaire.</p>
+    </div>
+  </section>
+
+  <!-- ============ ASANA ============ -->
+  <section id="asana" aria-labelledby="asana-h">
+    <p class="kicker">05 · Adaptation Asana</p>
+    <h2 id="asana-h">Et si Voteer passait (aussi) par Asana</h2>
+
+    <p>Le mécanisme ne dépend pas de Jira : c'est un workflow GitHub qui parle à une API. Asana expose lui aussi une API REST complète. La transposition demande de réécrire le script d'appel, pas l'architecture. Le côté GitHub — branches, PR, déploiements, secrets — reste strictement identique.</p>
+
+    <h3>Équivalence des concepts</h3>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Jira (actuel)</th><th>Asana (adaptation)</th></tr></thead>
+        <tbody>
+          <tr><td>Ticket <code>VOTEER-12</code> (clé native)</td><td>Tâche Asana — identifiée par un identifiant technique (GID) ; la clé <code>VOTEER-12</code> reste la convention dans le nom de la tâche</td></tr>
+          <tr><td>Statut de workflow</td><td>Section du tableau (colonnes « À faire / En cours / Terminé », ou sections d'environnement)</td></tr>
+          <tr><td>Transition par nom de statut</td><td>Déplacement de la tâche vers une section cible de son projet</td></tr>
+          <tr><td>Commentaire Jira</td><td>Commentaire (story) sur la tâche</td></tr>
+          <tr><td>Recherche par clé d'issue</td><td>Recherche de la tâche par son nom dans le projet — moins robuste si les tâches sont renommées</td></tr>
+          <tr><td>Auth : Basic email + token API</td><td>Auth : Bearer PAT Asana (une seule valeur)</td></tr>
+          <tr><td>Secrets : <code>JIRA_BASE_URL</code>, <code>JIRA_USER_EMAIL</code>, <code>JIRA_API_TOKEN</code></td><td>Secrets : <code>ASANA_TOKEN</code>, <code>ASANA_PROJECT_GID</code> (et les GID de sections)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Ce qui change, ce qui ne change pas</h3>
+    <ul>
+      <li><strong>Inchangé</strong> : déclencheurs GitHub, extraction de la clé dans la branche/PR, jobs par environnement, secrets du dépôt, lien des runs dans les commentaires.</li>
+      <li><strong>À adapter</strong> : une version <code>asana.sh</code> remplaçant <code>jira.sh</code> (même structure : une commande « déplacer vers section » et une commande « commenter »), et la résolution des identifiants de sections — à relever une fois à la configuration.</li>
+      <li><strong>Effort estimé</strong> : environ une demi-journée à une journée, dont l'essentiel pour caler la convention de nommage et les sections cibles.</li>
+    </ul>
+
+    <h3>Limites propres à Asana</h3>
+    <ul>
+      <li><strong>Pas de clé native lisible</strong> : Jira génère <code>VOTEER-12</code>, Asana non. La convention doit donc vivre dans le nom de la tâche, ce qui impose de ne pas la renommer.</li>
+      <li><strong>Recherche par nom fragile</strong> : si une tâche change de nom, le lien casse. Remède : conserver la clé dans un champ personnalisé, ou une table de correspondance dans le dépôt.</li>
+      <li><strong>Limite de débit</strong> plus stricte qu'aucun usage réel de ce workflow n'atteindra : une poignée d'appels par événement.</li>
+      <li><strong>Statuts = sections</strong> : le modèle est plus souple que le workflow Jira, mais moins structuré — les transitions ne sont pas contrôlées.</li>
+    </ul>
+
+    <div class="callout">
+      <p class="title">Les deux outils ensemble, si nécessaire</p>
+      <p>Rien n'interdit d'informer Jira <em>et</em> Asana depuis le même workflow : deux appels successifs dans le même job. C'est une ligne ou deux à ajouter, utile pendant une période de transition ou si des parties prenantes suivent le projet dans Asana.</p>
+    </div>
+  </section>
+
+  <!-- ============ MISE EN ŒUVRE ============ -->
+  <section id="mise-en-oeuvre" aria-labelledby="moe-h">
+    <p class="kicker">06 · Mise en œuvre</p>
+    <h2 id="moe-h">Passer du test à voteer</h2>
+
+    <p>Le test a déjà répondu aux questions d'architecture. Il reste à transposer — et à décider de ce qui convient à voteer.</p>
+
+    <ol class="check">
+      <li><span class="box" aria-hidden="true"></span><span><strong>Obtenir l'accès à l'organisation</strong> — un propriétaire de <code>@voteer</code> approuve GitHub CLI, ou un token à portée limitée est créé pour les opérations d'installation.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Identifier le projet Jira de voteer</strong> et lister ses statuts réels. Si les états « dev / staging / prod » n'existent pas, choisir entre les ajouter au workflow ou se limiter aux commentaires pour ces environnements.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Créer un compte de service</strong> (ou réutiliser le compte choisi) et générer son token API ; le conserver dans les secrets du dépôt voteer, jamais dans le code.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Installer les deux fichiers</strong> dans le dépôt voteer et brancher les étapes Jira dans les vrais jobs de déploiement, après les étapes de mise en production.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Durcir le script avant généralisation</strong> — tolérer proprement le cas « ticket déjà dans le statut visé », pour qu'une re-poussée ne produise jamais un run rouge inutile.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Piloter sur 3 à 5 tickets réels</strong>, vérifier chaque effet, puis élargir. Décider à ce moment-là si dev et staging commentent aussi, ou si la prod suffit.</span></li>
+    </ol>
+
+    <div class="callout">
+      <p class="title">Ce que la documentation ne remplace pas</p>
+      <p>La décision d'élargir aux autres statuts et aux autres projets se prendra sur les données du pilote : nombre de commentaires générés, utilité perçue par l'équipe, ajustements de convention. C'est une décision d'organisation, pas une décision technique.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>Document établi le 18 novembre 2026 à partir du test réel sur le dépôt <code>salimz3m/jira-gh-automation-test</code> et du ticket véhicule SCRAP-18. Environnement de test : site Atlassian <code>ourabahsalim.atlassian.net</code>, projet ScrapperTeam. Les hypothèses de volume de la section « Gain réel » sont à ajuster aux chiffres réels de voteer.</p>
+  </footer>
+
+</div>

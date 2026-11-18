@@ -4,23 +4,32 @@ on:
   push:
     branches: ['**']
   pull_request:
-    types: [opened, closed]
-  workflow_dispatch:
-    inputs:
-      target_environment:
-        description: 'Environnement déployé'
-        required: true
-        type: choice
-        options: [dev, staging, prod]
-      jira_issue:
-        description: 'Clé du ticket Jira (ex. SCRAP-18)'
-        required: true
-        type: string
+    types: [opened, ready_for_review, assigned, closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # Noms des statuts Jira du projet cible — à adapter par projet.
+  # Test (SCRAP)  : 'En cours' / 'Terminé' (statuts existants)
+  # Voteer        : 'EN COURS' / 'TERMINÉ(E)' (statuts du workflow réel)
+  STATUS_IN_PROGRESS: 'En cours'
+  STATUS_IN_PR: 'EN PR'
+  STATUS_DEV: 'DEPLOYED ON DEV'
+  STATUS_STAGING: 'DEPLOYED ON STAGING'
+  STATUS_DONE: 'Terminé'
 
 jobs:
-  branch-status:
-    name: Branche poussee -> En cours
-    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+  # ── 1. Une branche de travail est poussée → EN COURS ─────────────────────
+  in-progress:
+    name: Branche -> EN COURS
+    if: >-
+      github.event_name == 'push'
+      && github.ref != 'refs/heads/main'
+      && github.ref != 'refs/heads/dev-dep'
+      && github.ref != 'refs/heads/release'
+      && github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
@@ -34,16 +43,20 @@ jobs:
           KEY=$(printf '%s' "${GITHUB_REF_NAME}" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)
           echo "Cle detectee : ${KEY:-aucune}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
-      - name: Transition En cours
+      - name: Transition vers EN COURS
         if: steps.key.outputs.key != ''
         env:
           JIRA_KEY: ${{ steps.key.outputs.key }}
-        run: |
-          bash .github/scripts/jira.sh transition "$JIRA_KEY" "En cours" "Branche ${GITHUB_REF_NAME} poussee : passage automatique en En cours."
+        run: bash .github/scripts/jira.sh transition "$JIRA_KEY" "$STATUS_IN_PROGRESS"
 
-  pr-comment:
-    name: PR -> commentaire
-    if: github.event_name == 'pull_request'
+  # ── 2. PR ouverte / prete / assignee → EN PR ─────────────────────────────
+  en-pr:
+    name: PR -> EN PR
+    if: >-
+      github.event_name == 'pull_request'
+      && (github.event.action == 'opened'
+          || github.event.action == 'ready_for_review'
+          || github.event.action == 'assigned')
     runs-on: ubuntu-latest
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
@@ -60,49 +73,88 @@ jobs:
           KEY=$(printf '%s %s' "$PR_TITLE" "$PR_BRANCH" | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)
           echo "Cle detectee : ${KEY:-aucune}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
-      - name: PR ouverte
-        if: github.event.action == 'opened' && steps.key.outputs.key != ''
+      - name: Transition vers EN PR
+        if: steps.key.outputs.key != ''
         env:
           JIRA_KEY: ${{ steps.key.outputs.key }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          bash .github/scripts/jira.sh comment "$JIRA_KEY" "PR #${PR_NUMBER} ouverte : ${PR_TITLE} — ${PR_URL}"
-      - name: PR fusionnee
-        if: github.event.action == 'closed' && github.event.pull_request.merged && steps.key.outputs.key != ''
-        env:
-          JIRA_KEY: ${{ steps.key.outputs.key }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BASE: ${{ github.event.pull_request.base.ref }}
-        run: |
-          bash .github/scripts/jira.sh comment "$JIRA_KEY" "PR #${PR_NUMBER} fusionnee dans ${PR_BASE}."
+        run: bash .github/scripts/jira.sh transition "$JIRA_KEY" "$STATUS_IN_PR"
 
-  deploy:
-    name: Deploiement
-    if: github.event_name == 'workflow_dispatch'
+  # ── 3. Merge sur dev-dep / release / master → statut de deploiement ──────
+  deploy-status:
+    name: Merge -> statut de deploiement
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.action == 'closed'
+        && github.event.pull_request.merged == true)
+      || (github.event_name == 'push'
+        && (github.ref == 'refs/heads/dev-dep'
+            || github.ref == 'refs/heads/release'
+            || github.ref == 'refs/heads/master'))
     runs-on: ubuntu-latest
-    environment: ${{ inputs.target_environment }}
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
       JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Deploiement simule
-        run: echo "Deploiement simule sur ${{ inputs.target_environment }} (run ${{ github.run_id }})"
-      - name: Dev ou staging - commentaire
-        if: inputs.target_environment != 'prod'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Determiner le statut cible
+        id: target
         env:
-          JIRA_KEY: ${{ inputs.jira_issue }}
-          ENV_NAME: ${{ inputs.target_environment }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          bash .github/scripts/jira.sh comment "$JIRA_KEY" "Deploiement ${ENV_NAME} reussi — ${RUN_URL}"
-      - name: Prod - Terminé + commentaire
-        if: inputs.target_environment == 'prod'
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$BASE_REF"
+          else
+            BASE="${GITHUB_REF_NAME}"
+          fi
+          case "$BASE" in
+            dev-dep) T="$STATUS_DEV" ;;
+            release) T="$STATUS_STAGING" ;;
+            master)  T="$STATUS_DONE" ;;
+            *)       T="" ;;
+          esac
+          echo "Branche ${BASE} -> statut cible : ${T:-aucun}"
+          echo "target=${T}" >> "$GITHUB_OUTPUT"
+      - name: Collecter les cles Jira
+        id: keys
+        if: steps.target.outputs.target != ''
         env:
-          JIRA_KEY: ${{ inputs.jira_issue }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          bash .github/scripts/jira.sh transition "$JIRA_KEY" "Terminé" "Deploiement production reussi : passage automatique en Terminé — ${RUN_URL}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Toutes les cles du PR : titre, branche source et commit du PR
+            # (couvre les promotions en lot dev-dep -> release -> master)
+            KEYS=$( {
+              printf '%s %s\n' "$PR_TITLE" "$PR_BRANCH"
+              curl -s -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100" \
+                | jq -r '.[].commit.message' 2>/dev/null || true
+            } | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u )
+          else
+            KEYS=$( {
+              printf '%s\n' "${HEAD_MESSAGE:-}"
+              printf '%s' "${COMMITS_JSON:-[]}" | jq -r '.[].message' 2>/dev/null || true
+            } | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | sort -u )
+          fi
+          echo "Cles detectees :"
+          echo "${KEYS:-aucune}"
+          echo "keys<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$KEYS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+      - name: Appliquer le statut a chaque ticket
+        if: steps.target.outputs.target != '' && steps.keys.outputs.keys != ''
+        run: |
+          while IFS= read -r K; do
+            [ -z "$K" ] && continue
+            bash .github/scripts/jira.sh transition "$K" "${{ steps.target.outputs.target }}" \
+              || echo "Avertissement : echec de mise a jour de $K (on continue)" >&2
+          done <<< "${{ steps.keys.outputs.keys }}"

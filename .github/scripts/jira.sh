@@ -63,16 +63,22 @@ comment() {
 }
 
 transition() {
-  local key="$1" target="$2" text="${3:-}" tid
-  tid=$(api GET "/rest/api/3/issue/$key/transitions" \
+  local key="$1" target="$2" text="${3:-}" tid transitions current
+  transitions=$(api GET "/rest/api/3/issue/$key/transitions")
+  tid=$(printf '%s' "$transitions" \
         | jq -r --arg t "$target" '.transitions[] | select(.name == $t or .to.name == $t) | .id' \
         | head -n1)
   if [[ -z "${tid// /}" ]]; then
-    echo "ERREUR : transition vers « $target » introuvable pour $key." >&2
+    # Idempotence : si le ticket est deja dans le statut vise, on ne fait rien.
+    current=$(api GET "/rest/api/3/issue/$key?fields=status" | jq -r '.fields.status.name')
+    if [[ "$current" == "$target" ]]; then
+      echo "$key : deja en « $target », rien a faire."
+      return 0
+    fi
+    echo "ERREUR : transition vers « $target » introuvable pour $key (statut actuel : $current)." >&2
     echo "Transitions disponibles pour ce ticket :" >&2
-    api GET "/rest/api/3/issue/$key/transitions" \
-      | jq -r '.transitions[] | "  - \(.name) (vers \(.to.name))"' >&2
-    exit 1
+    printf '%s' "$transitions" | jq -r '.transitions[] | "  - \(.name) (vers \(.to.name))"' >&2
+    return 1
   fi
   api POST "/rest/api/3/issue/$key/transitions" \
     "$(jq -n --arg id "$tid" '{transition:{id:$id}}')" > /dev/null
