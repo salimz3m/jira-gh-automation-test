@@ -54,7 +54,7 @@ jobs:
     name: PR -> EN PR
     if: >-
       github.event_name == 'pull_request'
-      && (github.event.action == 'opened'
+      && ((github.event.action == 'opened' && github.event.pull_request.draft == false)
           || github.event.action == 'ready_for_review'
           || github.event.action == 'assigned')
     runs-on: ubuntu-latest
