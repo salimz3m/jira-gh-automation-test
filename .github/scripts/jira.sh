@@ -75,7 +75,7 @@ transition() {
     exit 1
   fi
   api POST "/rest/api/3/issue/$key/transitions" \
-    "$(jq -n --argjson id "$tid" '{id:$id}')" > /dev/null
+    "$(jq -n --arg id "$tid" '{transition:{id:$id}}')" > /dev/null
   echo "$key -> $target."
   if [[ -n "$text" ]]; then
     comment "$key" "$text"
