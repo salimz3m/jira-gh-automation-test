@@ -440,7 +440,7 @@
         </tbody>
       </table>
     </div>
-    <p>Le workflow extrait la clé automatiquement (motif <code>[A-Z]+-[0-9]+</code>) du nom de branche, puis du titre de la PR. Aucun autre outil n'est nécessaire pour que le lien se fasse.</p>
+    <p>Le workflow extrait la clé automatiquement du nom de branche, puis du titre de la PR : motif <code>VOT-xxxx</code> insensible à la casse, avec un repli « numéro nu » strictement cadré sur les conventions de branches (détail en section suivante). Aucun autre outil n'est nécessaire pour que le lien se fasse.</p>
 
     <h3>Mapping événement GitHub → effet Jira</h3>
     <div class="tablebox">
@@ -505,10 +505,9 @@
 
     <div class="callout">
       <p class="title">La ligne qui fait tout le lien : l'extraction de la clé</p>
-      <p>Le ticket est identifié par une seule commande de filtrage :</p>
-      <pre class="code">KEY=$(printf '%s' "${GITHUB_REF_NAME}" \
-  | grep -oE '[A-Z][A-Z0-9]*-[0-9]+' | head -n1 || true)</pre>
-      <p>Le nom de branche <code>feature/VOTEER-12-login</code> donne la clé <code>VOTEER-12</code>. Aucune base de données, aucun scan de Jira, aucun « script de nettoyage » : si aucune clé n'est trouvée, le script ne fait rien. <strong>La clé dans la branche est le lien.</strong></p>
+      <p>Le ticket est identifié par une seule commande (trois modes selon le texte analysé) :</p>
+      <pre class="code">KEY=$(bash .github/scripts/jira.sh extract "${GITHUB_REF_NAME}")</pre>
+      <p>Trois règles, du plus large au plus strict : motif <code>VOT-xxxx</code> insensible à la casse partout (<code>feature/VOT-1234-login</code> → <code>VOT-1234</code>) ; repli « numéro nu » sur les noms de branche et titres (<code>Sprint41/Feature/1308-…</code> → <code>VOT-1308</code>, références <code>#NNN</code> écartées) ; dans les messages de commit, numéro nu uniquement dans un contexte de branche — après un <code>/</code> ou un préfixe <code>feat-</code>/<code>feature-</code>/<code>fix-</code> — pour qu'un « Merge pull request #324 » ne produise jamais <code>VOT-324</code>. Aucune base de données, aucun scan de Jira : si aucune clé n'est trouvée, le script ne fait rien. <strong>La clé dans la branche est le lien.</strong></p>
     </div>
 
     <h3>Étape 1 — Push d'une branche de travail → EN COURS</h3>
@@ -563,6 +562,8 @@
       <li><strong>GitHub : lecture seule.</strong> Aucun droit de pousser, merger, modifier une PR, une branche ou un paramètre du dépôt — même si le script contenait un bug.</li>
       <li><strong>Jira : un seul écrit</strong> — le changement de statut du ticket via l'API de transitions. La fonction commentaire existe encore dans le script mais n'est plus appelée dans le flux retenu.</li>
       <li><strong>Aucune autonomie</strong> : pas de tâche planifiée, pas de cron ; uniquement des réactions à des événements.</li>
+      <li><strong>Statuts protégés</strong> : « En attente du client », « En attente du support » et « Paused » ne sont jamais écrasés par l'automatisation (liste <code>PROTECTED_STATUSES</code> ajustable).</li>
+      <li><strong>Arrêt d'urgence</strong> : la variable de dépôt <code>JIRA_SYNC_ENABLED=false</code> coupe tous les jobs instantanément, sans merger de commit ; <code>timeout-minutes: 5</code> borne chaque exécution.</li>
       <li><strong>Recommandation</strong> : faire porter le token par un compte de service dédié, avec des droits limités aux projets concernés.</li>
     </ul>
 
@@ -589,7 +590,7 @@
         <thead><tr><th>Capacité</th><th>Détail</th></tr></thead>
         <tbody>
           <tr><td><strong>Transitions de statut</strong></td><td>Par nom de statut cible — résiste aux changements d'identifiants et fonctionne sur tout workflow Jira, y compris les statuts personnalisés (ex. « Deployed on Dev »).</td></tr>
-          <tr><td><strong>Commentaires</strong></td><td>Texte horodaté avec liens cliquables vers la PR et le run GitHub. Base de l'audit et des notes de version.</td></tr>
+          <tr><td><strong>Commentaires</strong></td><td>Capacité présente dans le script (texte horodaté avec liens), mais <strong>non utilisée dans le flux retenu</strong> : la v2 ne modifie que les statuts, zéro commentaire. Réactivable en une ligne si le besoin apparaît.</td></tr>
           <tr><td><strong>Événements GitHub</strong></td><td>Tout événement Actions : push, PR, déploiement, release, tag, échec de build, lancement manuel.</td></tr>
           <tr><td><strong>Multiprojet</strong></td><td>Un même dépôt peut piloter plusieurs projets Jira (le script lit la clé dans la branche, le projet en découle).</td></tr>
           <tr><td><strong>Extensible</strong></td><td>L'API Jira permet aussi d'assigner, d'étiqueter, de renseigner des champs personnalisés, de lier des tickets ou de gérer des versions. Ces briques s'ajoutent au même script si le besoin apparaît.</td></tr>
@@ -604,9 +605,9 @@
       <li><strong>Le token a un propriétaire.</strong> Le token API appartient à un compte Atlassian ; si ce compte disparaît, l'automatisation s'arrête. Recommandation : créer un compte de service dédié et en faire le propriétaire du token.</li>
       <li><strong>Les statuts doivent exister dans le projet.</strong> Si un projet voteer n'a pas de statuts « dev / staging / prod », il faut soit les ajouter au workflow (2 minutes), soit se limiter aux commentaires pour ces environnements.</li>
       <li><strong>Les droits suivent le compte.</strong> Le porteur du token doit avoir le droit de transitionner sur les projets concernés.</li>
-      <li><strong>Idempotence à parfaire.</strong> Re-pousser sur une branche déjà « En cours » produit aujourd'hui un run en échec (sans effet sur Jira, mais bruyant). Correction déjà identifiée : traiter « transition indisponible » comme un succès quand le ticket est déjà dans l'état visé.</li>
+      <li><strong>Idempotence corrigée et testée.</strong> Si le ticket est déjà dans le statut visé, la mise à jour est ignorée silencieusement (run vert). Un re-push, un double déclenchement PR + push ou un commit de revert ne produisent aucun effet.</li>
       <li><strong>Bruit possible.</strong> Multiplier les événements multiplie les commentaires. Recommandation de démarrage : branche, PR fusionnée, prod — puis ajouter dev/staging si l'équipe les trouve utiles.</li>
-      <li><strong>Coût d'exécution</strong> : chaque événement consomme ~10 à 20 secondes de runner GitHub Actions — négligeable à l'échelle d'une organisation.</li>
+      <li><strong>Coût d'exécution, chiffres honnêtes</strong> : GitHub arrondit chaque <em>job</em> à la minute supérieure — un cycle ticket complet (branche, PR, merges successifs) facture ~6-8 job-minutes. Sur le rythme actuel du projet VOT (126 tickets créés / 61 résolus sur 30 jours, données Jira), cela représente ~400-500 minutes par mois, à déduire du quota Actions de l'organisation (2 000 min en plan Free, partagé avec les autres workflows). Leviers si besoin : kill switch (<code>JIRA_SYNC_ENABLED=false</code>), retrait du déclencheur push redondant, suivi mensuel du billing.</li>
     </ul>
 
     <div class="callout warn">
@@ -645,8 +646,8 @@
         <thead><tr><th>Dimension</th><th>Avant (manuel)</th><th>Après (automatisé)</th></tr></thead>
         <tbody>
           <tr><td><strong>Fraîcheur du statut</strong></td><td>Décalage de 1 à 3 jours, ou jamais mis à jour</td><td><span class="pill ok">≤ 1 min</span> après chaque événement</td></tr>
-          <tr><td><strong>Temps administratif</strong></td><td>≈ 1 h / semaine / projet en relances et saisies</td><td>0</td></tr>
-          <tr><td><strong>Fiabilité du reporting</strong></td><td>Tableaux de bord approximatifs, cycle time faux</td><td>Cycle time, lead time et vélocité calculés sur des données exactes</td></tr>
+          <tr><td><strong>Temps administratif</strong></td><td>≈ 1 h / semaine / projet en relances et saisies</td><td>Résiduel : surveillance des runs, branches sans clé, tickets bloqués</td></tr>
+          <tr><td><strong>Fiabilité du reporting</strong></td><td>Tableaux de bord approximatifs, cycle time faux</td><td>Cycle time, lead time et vélocité sur des données cohérentes — à nuancer : « En cours » marque le premier push, un indicateur d'activité plus que le début réel du travail</td></tr>
           <tr><td><strong>Traçabilité des livraisons</strong></td><td>Reconstituée à la main, par mémoire ou par git log</td><td>Chaque ticket porte le lien de son run de déploiement</td></tr>
           <tr><td><strong>Adoption du processus</strong></td><td>Une procédure à connaître et à respecter</td><td>La branche fait la procédure : rien à apprendre de plus</td></tr>
           <tr><td><strong>Passage à l'échelle</strong></td><td>Coût linéaire avec le nombre de tickets</td><td>Coût constant, identique à 30 ou à 3 000 tickets</td></tr>
@@ -723,7 +724,7 @@
       <li><span class="box" aria-hidden="true"></span><span><strong>Identifier le projet Jira de voteer</strong> et vérifier les noms exacts des cinq statuts cibles : <code>EN COURS</code>, <code>EN PR</code>, <code>DEPLOYED ON DEV</code>, <code>DEPLOYED ON STAGING</code>, <code>TERMINÉ(E)</code>. Ajuster si besoin le bloc <code>env:</code> en tête de <code>jira-sync.yml</code> — c'est le seul fichier à modifier.</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Créer un compte de service</strong> (ou réutiliser le compte choisi) et générer son token API ; le conserver dans les secrets du dépôt voteer, jamais dans le code.</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Installer les deux fichiers</strong> dans le dépôt voteer et brancher les étapes Jira dans les vrais jobs de déploiement, après les étapes de mise en production.</span></li>
-      <li><span class="box" aria-hidden="true"></span><span><strong>Vérifier le durcissement — déjà en place</strong> dans la version testée : idempotence (ticket déjà dans le statut visé = succès silencieux), diagnostic HTTP complet, extraction par commits pour les promotions en lot.</span></li>
+      <li><span class="box" aria-hidden="true"></span><span><strong>Durcissements en place dans la PR d'implémentation</strong> (#344) : idempotence, diagnostic HTTP complet, extraction par commits pour les promotions en lot, kill switch <code>JIRA_SYNC_ENABLED</code>, <code>timeout-minutes: 5</code> par job, retour « En cours » sur PR fermée sans merge, statuts protégés, pagination des commits jusqu'au plafond API (250/PR).</span></li>
       <li><span class="box" aria-hidden="true"></span><span><strong>Piloter sur 3 à 5 tickets réels</strong>, vérifier chaque effet, puis élargir. Décider à ce moment-là si dev et staging commentent aussi, ou si la prod suffit.</span></li>
     </ol>
 
@@ -734,7 +735,7 @@
   </section>
 
   <footer>
-    <p>Document établi le 18 novembre 2026 à partir des tests réels sur le dépôt <code>salimz3m/jira-gh-automation-test</code> et du ticket véhicule SCRAP-18. Deux flux validés le même jour : une première version avec commentaires, puis le flux final à cinq statuts sans commentaire (PR #2, #3 et #4 : ouverture, promotion release sans clé dans le titre, promotion master). Environnement de test : site Atlassian <code>ourabahsalim.atlassian.net</code>, projet ScrapperTeam. Les hypothèses de volume de la section « Gain réel » sont à ajuster aux chiffres réels de voteer.</p>
+    <p>Document établi le 18 novembre 2026, mis à jour le 23 novembre 2026 après la review de l'équipe (Djida, Hichem ; review automatique Open SWE sur la PR). Tests réels sur le dépôt <code>salimz3m/jira-gh-automation-test</code> (ticket véhicule SCRAP-18, site <code>ourabahsalim.atlassian.net</code>), implémentation voteer dans la PR <a href="https://github.com/voteer/voteer-api/pull/344">voteer-api#344</a> (projet Jira VOT, statuts exacts du workflow). Volume mesuré sur 30 jours : 126 tickets créés, 61 résolus. Décisions d'équipe en attente : déclencheur « Deployed » (merge vs fin de déploiement), statuts QA protégés, tickets multi-PR, gestion des reverts.</p>
   </footer>
 
 </div>
